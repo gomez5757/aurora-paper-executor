@@ -1,0 +1,96 @@
+name: Aurora P2 Public Executor
+
+on:
+  issue_comment:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'selftest or run'
+        required: true
+        default: 'selftest'
+        type: choice
+        options:
+          - selftest
+          - run
+
+permissions:
+  contents: read
+  issues: read
+
+concurrency:
+  group: aurora-p2-public-executor
+  cancel-in-progress: false
+
+jobs:
+  execute:
+    if: >-
+      (github.event_name == 'workflow_dispatch' && github.actor == 'gomez5757') ||
+      (github.event_name == 'issue_comment' && github.event.action == 'created' &&
+       github.event.issue.number == 1 && !github.event.issue.pull_request &&
+       github.event.comment.user.login == 'gomez5757' &&
+       (github.event.comment.body == '/selftest p2' || github.event.comment.body == '/run p2'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Select mode
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
+          DISPATCH_MODE: ${{ inputs.mode }}
+        run: |
+          if [ "$EVENT_NAME" = "issue_comment" ]; then
+            if [ "$COMMENT_BODY" = "/selftest p2" ]; then
+              echo "MODE=selftest" >> "$GITHUB_ENV"
+            else
+              echo "MODE=run" >> "$GITHUB_ENV"
+            fi
+          else
+            echo "MODE=$DISPATCH_MODE" >> "$GITHUB_ENV"
+          fi
+
+      - name: Checkout private Aurora repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: gomez5757/aurora-swing-paper
+          ref: main
+          path: private
+          fetch-depth: 0
+          ssh-key: ${{ secrets.AURORA_PRIVATE_SSH_KEY }}
+          persist-credentials: true
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+
+      - name: Install private bridge dependencies
+        working-directory: private
+        run: python -m pip install -r requirements.txt
+
+      - name: Verify private bridge
+        working-directory: private
+        run: |
+          python -m unittest discover -s tests -v
+          python -m compileall -q bridge p2_bridge tests
+          git diff --check HEAD
+
+      - name: Require P2 broker secrets
+        if: env.MODE == 'run'
+        shell: bash
+        env:
+          ALPACA_API_KEY_ID: ${{ secrets.ALPACA_P2_API_KEY_ID }}
+          ALPACA_API_SECRET_KEY: ${{ secrets.ALPACA_P2_API_SECRET_KEY }}
+        run: |
+          test -n "$ALPACA_API_KEY_ID" || { echo "Missing ALPACA_P2_API_KEY_ID"; exit 1; }
+          test -n "$ALPACA_API_SECRET_KEY" || { echo "Missing ALPACA_P2_API_SECRET_KEY"; exit 1; }
+
+      - name: Drain private Portfolio 2 queue
+        if: env.MODE == 'run'
+        working-directory: private
+        env:
+          ALPACA_API_KEY_ID: ${{ secrets.ALPACA_P2_API_KEY_ID }}
+          ALPACA_API_SECRET_KEY: ${{ secrets.ALPACA_P2_API_SECRET_KEY }}
+        run: python -m p2_bridge.queue_run
