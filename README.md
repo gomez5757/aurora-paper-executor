@@ -1,24 +1,49 @@
 # Aurora Paper Executor
 
-Public execution shell for **Portfolio Autónomo #2**.
+Public, secret-free execution shell for **Portfolio Autónomo #2**.
 
-This repository intentionally contains no trading state, order journal, Alpaca
-credentials, portfolio decisions, or strategy memory. Its only job is to provide
-free standard GitHub-hosted runner capacity and execute the trusted bridge stored
-in the private repository `gomez5757/aurora-swing-paper`.
+## What is public here
 
-## Trigger
+Only:
+- the runner workflow;
+- this documentation;
+- Issue #1 trigger comments such as `/selftest p2` and `/run p2`.
 
-Only a newly created comment by `gomez5757` on Issue #1 whose body is exactly:
+Never put trading commands, positions, receipts, account data or credentials in this repository.
+
+## What remains private
+
+`gomez5757/aurora-swing-paper` keeps:
+- `PORTFOLIO_2.md` and the operating protocol;
+- `state/portfolio2.json`;
+- `queue_p2/`;
+- `journal_p2/`;
+- Portfolio #2 memory in private Issue #10.
+
+The public workflow checks out the private repository with a repository-scoped,
+write-enabled deploy key stored as the encrypted secret
+`AURORA_PRIVATE_SSH_KEY`. The deploy key cannot access other repositories.
+
+## Commands
+
+On public Issue #1:
+
+```text
+/selftest p2
+```
+
+Runs checkout + install + full private test suite + Python compilation + a
+no-mutation `git push --dry-run`.
 
 ```text
 /run p2
 ```
 
-starts the executor.
+Does the same verification and then drains `queue_p2/pending/`.
 
-The workflow checks out the private repository with a private repository token,
-runs its tests, fabricates a safe private `workflow_dispatch` context, and then
-runs `python -m p2_bridge.run`.
+Broker execution additionally requires encrypted repository secrets:
 
-All commands, receipts, state and journals remain in the private repository.
+- `ALPACA_P2_API_KEY_ID`
+- `ALPACA_P2_API_SECRET_KEY`
+
+The workflow is restricted to triggers created by GitHub user `gomez5757`.
