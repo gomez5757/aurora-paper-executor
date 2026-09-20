@@ -1,49 +1,34 @@
 # Aurora Paper Executor
 
-Public, secret-free execution shell for **Portfolio Autónomo #2**.
+Public, **secret-free execution shell** for the private Aurora Alpaca Paper bridge.
 
-## What is public here
+This repository provides standard GitHub-hosted runner capacity for both autonomous paper portfolios while all strategy, trading state, receipts, journals and command payloads remain in the private repository `gomez5757/aurora-swing-paper`.
 
-Only:
-- the runner workflow;
-- this documentation;
-- Issue #1 trigger comments such as `/selftest p2` and `/run p2`.
+## Public trigger bus
 
-Never put trading commands, positions, receipts, account data or credentials in this repository.
-
-## What remains private
-
-`gomez5757/aurora-swing-paper` keeps:
-- `PORTFOLIO_2.md` and the operating protocol;
-- `state/portfolio2.json`;
-- `queue_p2/`;
-- `journal_p2/`;
-- Portfolio #2 memory in private Issue #10.
-
-The public workflow checks out the private repository with a repository-scoped,
-write-enabled deploy key stored as the encrypted secret
-`AURORA_PRIVATE_SSH_KEY`. The deploy key cannot access other repositories.
-
-## Commands
-
-On public Issue #1:
+Issue #1 accepts only owner comments:
 
 ```text
+/selftest p1
+/run p1
 /selftest p2
-```
-
-Runs checkout + install + full private test suite + Python compilation + a
-no-mutation `git push --dry-run`.
-
-```text
 /run p2
 ```
 
-Does the same verification and then drains `queue_p2/pending/`.
+The public comments never contain broker commands, positions, account data or receipts.
 
-Broker execution additionally requires encrypted repository secrets:
+## Isolation
 
-- `ALPACA_P2_API_KEY_ID`
-- `ALPACA_P2_API_SECRET_KEY`
+Portfolio #1:
+- private queue: `queue_p1/`
+- private state: `state/current.json`
+- private journal: `journal/`
 
-The workflow is restricted to triggers created by GitHub user `gomez5757`.
+Portfolio #2:
+- private queue: `queue_p2/`
+- private state: `state/portfolio2.json`
+- private journal: `journal_p2/`
+
+A repository-scoped deploy key allows this executor to clone and persist results back to the private Aurora repository. Alpaca credentials, when configured, exist only as encrypted Actions secrets in this executor repository.
+
+The user's local PC is not part of runtime execution.
