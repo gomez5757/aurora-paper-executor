@@ -77,6 +77,10 @@ jobs:
           python -m compileall -q bridge p2_bridge tests
           git diff --check HEAD
 
+      - name: Verify private write path without mutation
+        working-directory: private
+        run: git push --dry-run origin HEAD:main
+
       - name: Require P2 broker secrets
         if: env.MODE == 'run'
         shell: bash
