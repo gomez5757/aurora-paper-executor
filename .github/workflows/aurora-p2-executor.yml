@@ -99,15 +99,15 @@ jobs:
         working-directory: private
         run: git push --dry-run origin HEAD:main
 
-      - name: Require P1 broker secrets
+      - name: Require P1 encrypted OAuth profile
         if: env.MODE == 'run' && env.PORTFOLIO == 'p1'
         shell: bash
+        working-directory: private
         env:
-          ALPACA_API_KEY_ID: ${{ secrets.ALPACA_P1_API_KEY_ID }}
-          ALPACA_API_SECRET_KEY: ${{ secrets.ALPACA_P1_API_SECRET_KEY }}
+          AURORA_OAUTH_BOX_PRIVATE_KEY_B64: ${{ secrets.AURORA_OAUTH_BOX_PRIVATE_KEY_B64 }}
         run: |
-          test -n "$ALPACA_API_KEY_ID" || { echo "Missing ALPACA_P1_API_KEY_ID"; exit 1; }
-          test -n "$ALPACA_API_SECRET_KEY" || { echo "Missing ALPACA_P1_API_SECRET_KEY"; exit 1; }
+          test -n "$AURORA_OAUTH_BOX_PRIVATE_KEY_B64" || { echo "Missing OAuth decrypt secret"; exit 1; }
+          test -s auth/p1.oauth.sealed || { echo "Missing encrypted P1 OAuth profile"; exit 1; }
 
       - name: Require P2 broker secrets
         if: env.MODE == 'run' && env.PORTFOLIO == 'p2'
@@ -123,8 +123,8 @@ jobs:
         if: env.MODE == 'run' && env.PORTFOLIO == 'p1'
         working-directory: private
         env:
-          ALPACA_API_KEY_ID: ${{ secrets.ALPACA_P1_API_KEY_ID }}
-          ALPACA_API_SECRET_KEY: ${{ secrets.ALPACA_P1_API_SECRET_KEY }}
+          AURORA_OAUTH_BOX_PRIVATE_KEY_B64: ${{ secrets.AURORA_OAUTH_BOX_PRIVATE_KEY_B64 }}
+          ALPACA_OAUTH_PROFILE_FILE: auth/p1.oauth.sealed
         run: python -m bridge.queue_run
 
       - name: Drain private Portfolio 2 queue
