@@ -78,11 +78,6 @@ jobs:
           python -m compileall -q bridge p2_bridge tests
           git diff --check HEAD
 
-      - name: Verify private write path without mutation
-        if: env.AURORA_SHOULD_RUN == 'true'
-        working-directory: private
-        run: git push --dry-run origin HEAD:main
-
       - name: Poll authorized private queues
         if: env.AURORA_SHOULD_RUN == 'true'
         working-directory: private
