@@ -2,16 +2,16 @@ name: Aurora Scheduled Queue Daemon
 
 on:
   schedule:
-    # Current challenges end before the US DST change. 14:05 UTC = 10:05 ET.
-    - cron: '5 14 * * *'
+    # Recovery pulses, ahead of the daily decisions; cutoff is checked below.
+    # UTC window is valid for these challenges, which end before US DST changes.
+    - cron: '7,17,27,37,47,57 13-16 * * *'
+  push:
+    branches: [main]
+    paths: ['.github/workflows/aurora-queue-daemon.yml']
   workflow_dispatch:
     inputs:
-      private_ref:
-        description: 'Private Aurora ref to execute'
-        required: false
-        default: 'main'
       duration_seconds:
-        description: 'Daemon lifetime for manual verification'
+        description: 'Maintenance lifetime in the same operating window (60-10200)'
         required: false
         default: '600'
 
@@ -24,6 +24,10 @@ concurrency:
 
 jobs:
   daemon:
+    if: >-
+      github.repository == 'gomez5757/aurora-paper-executor' &&
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'schedule' || github.actor == 'gomez5757')
     runs-on: ubuntu-latest
     timeout-minutes: 180
 
@@ -32,28 +36,48 @@ jobs:
         shell: bash
         env:
           EVENT_NAME: ${{ github.event_name }}
+          REQUESTED_DURATION: ${{ inputs.duration_seconds }}
         run: |
-          if [ "$EVENT_NAME" = "schedule" ]; then
-            now="$(date -u +%s)"
-            cutoff="$(date -u -d '2026-10-23T00:30:00Z' +%s)"
-            if [ "$now" -gt "$cutoff" ]; then
-              echo "AURORA_SHOULD_RUN=false" >> "$GITHUB_ENV"
-              exit 0
-            fi
-            echo "AURORA_DAEMON_DURATION_SECONDS=10200" >> "$GITHUB_ENV"
-            echo "AURORA_PRIVATE_REF=main" >> "$GITHUB_ENV"
-          else
-            echo "AURORA_DAEMON_DURATION_SECONDS=${{ inputs.duration_seconds }}" >> "$GITHUB_ENV"
-            echo "AURORA_PRIVATE_REF=${{ inputs.private_ref }}" >> "$GITHUB_ENV"
-          fi
-          echo "AURORA_SHOULD_RUN=true" >> "$GITHUB_ENV"
+          python - <<'PY'
+          import os
+          from datetime import datetime, timezone
+
+          def settings(now, event, requested):
+              cutoff = datetime(2026, 10, 23, 0, 30, tzinfo=timezone.utc)
+              start = now.replace(hour=13, minute=0, second=0, microsecond=0)
+              end = now.replace(hour=17, minute=15, second=0, microsecond=0)
+              if not (start <= now < end and now < cutoff):
+                  return {"AURORA_SHOULD_RUN": "false"}
+              duration = 10200
+              if event == "workflow_dispatch":
+                  duration = int(requested or "600")
+                  if not 60 <= duration <= 10200:
+                      raise ValueError("Invalid maintenance duration")
+              elif event not in {"schedule", "push"}:
+                  raise ValueError("Unsupported executor event")
+              duration = min(duration, int((end-now).total_seconds()))
+              if duration < 60:
+                  return {"AURORA_SHOULD_RUN": "false"}
+              return {
+                  "AURORA_SHOULD_RUN": "true",
+                  "AURORA_DAEMON_DURATION_SECONDS": str(duration),
+                  "AURORA_DAEMON_END_UTC": end.isoformat(),
+              }
+
+          if __name__ == "__main__":
+              values = settings(datetime.now(timezone.utc), os.environ["EVENT_NAME"],
+                                os.environ.get("REQUESTED_DURATION", ""))
+              with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as output:
+                  for key, value in values.items():
+                      output.write(f"{key}={value}\n")
+          PY
 
       - name: Checkout private Aurora repository
         if: env.AURORA_SHOULD_RUN == 'true'
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: gomez5757/aurora-swing-paper
-          ref: ${{ env.AURORA_PRIVATE_REF }}
+          ref: main
           path: private
           fetch-depth: 0
           ssh-key: ${{ secrets.AURORA_PRIVATE_SSH_KEY }}
@@ -84,5 +108,6 @@ jobs:
         env:
           AURORA_OAUTH_BOX_PRIVATE_KEY_B64: ${{ secrets.AURORA_OAUTH_BOX_PRIVATE_KEY_B64 }}
           AURORA_DAEMON_DURATION_SECONDS: ${{ env.AURORA_DAEMON_DURATION_SECONDS }}
+          AURORA_DAEMON_END_UTC: ${{ env.AURORA_DAEMON_END_UTC }}
           AURORA_DAEMON_POLL_SECONDS: '10'
         run: python -m bridge.cloud_queue_daemon
