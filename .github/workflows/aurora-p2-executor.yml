@@ -1,136 +1,44 @@
-name: Aurora Public Executor
+name: Aurora Read-Only Verification
 
 on:
-  issue_comment:
-    types: [created]
+  push:
+    branches: [main]
+    paths: ['.github/workflows/aurora-p2-executor.yml']
   workflow_dispatch:
-    inputs:
-      portfolio:
-        description: 'p1 or p2'
-        required: true
-        default: 'p2'
-        type: choice
-        options: [p1, p2]
-      mode:
-        description: 'selftest or run'
-        required: true
-        default: 'selftest'
-        type: choice
-        options: [selftest, run]
-      private_ref:
-        description: 'Private repo ref to test/execute'
-        required: false
-        default: 'main'
 
 permissions:
   contents: read
-  issues: read
 
 concurrency:
-  group: aurora-public-executor
+  group: aurora-readonly-verification
   cancel-in-progress: false
 
 jobs:
-  execute:
-    if: >-
-      (github.event_name == 'workflow_dispatch' && github.actor == 'gomez5757') ||
-      (github.event_name == 'issue_comment' && github.event.action == 'created' &&
-       github.event.issue.number == 1 && !github.event.issue.pull_request &&
-       github.event.comment.user.login == 'gomez5757' &&
-       (github.event.comment.body == '/selftest p1' ||
-        github.event.comment.body == '/run p1' ||
-        github.event.comment.body == '/selftest p2' ||
-        github.event.comment.body == '/run p2'))
+  verify:
+    if: github.repository == 'gomez5757/aurora-paper-executor' && github.ref == 'refs/heads/main' && github.actor == 'gomez5757'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
-
+    timeout-minutes: 10
     steps:
-      - name: Select portfolio and mode
-        shell: bash
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          COMMENT_BODY: ${{ github.event.comment.body }}
-          DISPATCH_PORTFOLIO: ${{ inputs.portfolio }}
-          DISPATCH_MODE: ${{ inputs.mode }}
-          DISPATCH_REF: ${{ inputs.private_ref }}
-        run: |
-          if [ "$EVENT_NAME" = "issue_comment" ]; then
-            case "$COMMENT_BODY" in
-              "/selftest p1") echo "PORTFOLIO=p1" >> "$GITHUB_ENV"; echo "MODE=selftest" >> "$GITHUB_ENV" ;;
-              "/run p1")      echo "PORTFOLIO=p1" >> "$GITHUB_ENV"; echo "MODE=run" >> "$GITHUB_ENV" ;;
-              "/selftest p2") echo "PORTFOLIO=p2" >> "$GITHUB_ENV"; echo "MODE=selftest" >> "$GITHUB_ENV" ;;
-              "/run p2")      echo "PORTFOLIO=p2" >> "$GITHUB_ENV"; echo "MODE=run" >> "$GITHUB_ENV" ;;
-              *) exit 1 ;;
-            esac
-            echo "PRIVATE_REF=main" >> "$GITHUB_ENV"
-          else
-            echo "PORTFOLIO=$DISPATCH_PORTFOLIO" >> "$GITHUB_ENV"
-            echo "MODE=$DISPATCH_MODE" >> "$GITHUB_ENV"
-            echo "PRIVATE_REF=$DISPATCH_REF" >> "$GITHUB_ENV"
-          fi
-
-      - name: Checkout private Aurora repository
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Checkout private source for tests only
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           repository: gomez5757/aurora-swing-paper
-          ref: ${{ env.PRIVATE_REF }}
+          ref: main
           path: private
-          fetch-depth: 0
+          fetch-depth: 1
           ssh-key: ${{ secrets.AURORA_PRIVATE_SSH_KEY }}
-          persist-credentials: true
-
+          persist-credentials: false
+          show-progress: false
       - name: Set up Python
-        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: '3.12'
-
-      - name: Install private bridge dependencies
+      - name: Install test dependencies
         working-directory: private
         run: python -m pip install -r requirements.txt
-
-      - name: Verify private bridge
+      - name: Verify all tests without broker access
         working-directory: private
         run: |
           python -m unittest discover -s tests -v
           python -m compileall -q bridge p2_bridge tests
           git diff --check HEAD
-
-      - name: Verify private write path without mutation
-        working-directory: private
-        run: git push --dry-run origin HEAD:main
-
-      - name: Require P1 encrypted OAuth profile
-        if: env.MODE == 'run' && env.PORTFOLIO == 'p1'
-        shell: bash
-        working-directory: private
-        env:
-          AURORA_OAUTH_BOX_PRIVATE_KEY_B64: ${{ secrets.AURORA_OAUTH_BOX_PRIVATE_KEY_B64 }}
-        run: |
-          test -n "$AURORA_OAUTH_BOX_PRIVATE_KEY_B64" || { echo "Missing OAuth decrypt secret"; exit 1; }
-          test -s auth/p1.oauth.sealed || { echo "Missing encrypted P1 OAuth profile"; exit 1; }
-
-      - name: Require P2 encrypted OAuth profile
-        if: env.MODE == 'run' && env.PORTFOLIO == 'p2'
-        shell: bash
-        working-directory: private
-        env:
-          AURORA_OAUTH_BOX_PRIVATE_KEY_B64: ${{ secrets.AURORA_OAUTH_BOX_PRIVATE_KEY_B64 }}
-        run: |
-          test -n "$AURORA_OAUTH_BOX_PRIVATE_KEY_B64" || { echo "Missing OAuth decrypt secret"; exit 1; }
-          test -s auth/p2.oauth.sealed || { echo "Missing encrypted P2 OAuth profile"; exit 1; }
-
-      - name: Drain private Portfolio 1 queue
-        if: env.MODE == 'run' && env.PORTFOLIO == 'p1'
-        working-directory: private
-        env:
-          AURORA_OAUTH_BOX_PRIVATE_KEY_B64: ${{ secrets.AURORA_OAUTH_BOX_PRIVATE_KEY_B64 }}
-          ALPACA_OAUTH_PROFILE_FILE: auth/p1.oauth.sealed
-        run: python -m bridge.queue_run
-
-      - name: Drain private Portfolio 2 queue
-        if: env.MODE == 'run' && env.PORTFOLIO == 'p2'
-        working-directory: private
-        env:
-          AURORA_OAUTH_BOX_PRIVATE_KEY_B64: ${{ secrets.AURORA_OAUTH_BOX_PRIVATE_KEY_B64 }}
-          ALPACA_OAUTH_PROFILE_FILE: auth/p2.oauth.sealed
-        run: python -m p2_bridge.queue_run
