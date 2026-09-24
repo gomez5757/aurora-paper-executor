@@ -2,18 +2,17 @@ name: Aurora Scheduled Queue Daemon
 
 on:
   schedule:
-    # Recovery pulses, ahead of the daily decisions; cutoff is checked below.
-    # UTC window is valid for these challenges, which end before US DST changes.
-    - cron: '7,17,27,37,47,57 13-16 * * *'
+    # One daily warm-up; manual starts and reruns are available at any hour.
+    - cron: '7 14 * * *'
   push:
     branches: [main]
     paths: ['.github/workflows/aurora-queue-daemon.yml']
   workflow_dispatch:
     inputs:
       duration_seconds:
-        description: 'Maintenance lifetime in the same operating window (60-10200)'
+        description: 'Worker lifetime in seconds (60-10200), at any time'
         required: false
-        default: '600'
+        default: '7200'
 
 permissions:
   contents: read
@@ -32,7 +31,7 @@ jobs:
     timeout-minutes: 180
 
     steps:
-      - name: Gate scheduled challenge window
+      - name: Configure bounded worker lifetime
         shell: bash
         env:
           EVENT_NAME: ${{ github.event_name }}
@@ -40,36 +39,35 @@ jobs:
         run: |
           python - <<'PY'
           import os
-          from datetime import datetime, timezone
+          from datetime import datetime, timedelta, timezone
 
-          def settings(now, event, requested):
+          def settings(now, event, requested, attempt):
+              if now.tzinfo is None:
+                  raise ValueError('UTC-aware clock required')
+              if event not in {'schedule', 'push', 'workflow_dispatch'}:
+                  raise ValueError('Unsupported executor event')
+              attempt = int(attempt)
+              if attempt < 1:
+                  raise ValueError('Invalid run attempt')
+              # Only automatic first attempts stop after the campaign.
+              # Explicit starts/reruns remain available for reconciliation.
               cutoff = datetime(2026, 10, 23, 0, 30, tzinfo=timezone.utc)
-              start = now.replace(hour=13, minute=0, second=0, microsecond=0)
-              end = now.replace(hour=17, minute=15, second=0, microsecond=0)
-              if not (start <= now < end and now < cutoff):
-                  return {"AURORA_SHOULD_RUN": "false"}
-              duration = 10200
-              if event == "workflow_dispatch":
-                  duration = int(requested or "600")
-                  if not 60 <= duration <= 10200:
-                      raise ValueError("Invalid maintenance duration")
-              elif event not in {"schedule", "push"}:
-                  raise ValueError("Unsupported executor event")
-              duration = min(duration, int((end-now).total_seconds()))
-              if duration < 60:
-                  return {"AURORA_SHOULD_RUN": "false"}
+              if event == 'schedule' and attempt == 1 and now >= cutoff:
+                  return {'AURORA_SHOULD_RUN': 'false'}
+              duration = int(requested or '7200') if event == 'workflow_dispatch' else 7200
+              if not 60 <= duration <= 10200:
+                  raise ValueError('Invalid worker lifetime')
               return {
-                  "AURORA_SHOULD_RUN": "true",
-                  "AURORA_DAEMON_DURATION_SECONDS": str(duration),
-                  "AURORA_DAEMON_END_UTC": end.isoformat(),
+                  'AURORA_SHOULD_RUN': 'true',
+                  'AURORA_DAEMON_DURATION_SECONDS': str(duration),
+                  'AURORA_DAEMON_END_UTC': (now + timedelta(seconds=duration)).isoformat(),
               }
 
-          if __name__ == "__main__":
-              values = settings(datetime.now(timezone.utc), os.environ["EVENT_NAME"],
-                                os.environ.get("REQUESTED_DURATION", ""))
-              with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as output:
-                  for key, value in values.items():
-                      output.write(f"{key}={value}\n")
+          values = settings(datetime.now(timezone.utc), os.environ['EVENT_NAME'],
+                            os.environ.get('REQUESTED_DURATION', ''), os.environ['GITHUB_RUN_ATTEMPT'])
+          with open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8') as output:
+              for key, value in values.items():
+                  output.write(f'{key}={value}\n')
           PY
 
       - name: Checkout private Aurora repository
