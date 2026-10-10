@@ -4,18 +4,16 @@ Public, secret-free execution shell for the private Aurora Alpaca Paper bridge.
 
 This repository provides standard GitHub-hosted runner capacity for both autonomous **Paper** portfolios while strategy, trading state, receipts, journals and command payloads remain in the private repository `gomez5757/aurora-swing-paper`.
 
-## Public trigger bus
+## Trigger
 
-Issue #1 accepts only owner comments:
+Since 2026-10-10 the daily Claude Code routine starts the worker by pushing
+`triggers/start.json` to `main` (workflow `Aurora Scheduled Queue Daemon`,
+owner pushes only, 60 minute lifetime). There is no cron. The trigger file holds
+only a timestamp and a nonce: no broker commands, positions, account data or
+receipts are ever written to this public repository.
 
-```text
-/selftest p1
-/run p1
-/selftest p2
-/run p2
-```
-
-The public comments never contain broker commands, positions, account data or receipts.
+The legacy owner-only Issue #1 commands (`/run p1`, `/run p2`) still work for
+manual one-shot drains.
 
 ## Broker authentication
 

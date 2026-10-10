@@ -1,18 +1,16 @@
 name: Aurora Scheduled Queue Daemon
 
 on:
-  schedule:
-    # One daily warm-up; manual starts and reruns are available at any hour.
-    - cron: '7 14 * * *'
+  # Started on demand by the daily Claude routine (push to triggers/start.json).
   push:
     branches: [main]
-    paths: ['.github/workflows/aurora-queue-daemon.yml']
+    paths: ['triggers/**', '.github/workflows/aurora-queue-daemon.yml']
   workflow_dispatch:
     inputs:
       duration_seconds:
         description: 'Worker lifetime in seconds (60-10200), at any time'
         required: false
-        default: '7200'
+        default: '3600'
 
 permissions:
   contents: read
@@ -26,7 +24,7 @@ jobs:
     if: >-
       github.repository == 'gomez5757/aurora-paper-executor' &&
       github.ref == 'refs/heads/main' &&
-      (github.event_name == 'schedule' || github.actor == 'gomez5757')
+      github.actor == 'gomez5757'
     runs-on: ubuntu-latest
     timeout-minutes: 180
 
@@ -44,17 +42,12 @@ jobs:
           def settings(now, event, requested, attempt):
               if now.tzinfo is None:
                   raise ValueError('UTC-aware clock required')
-              if event not in {'schedule', 'push', 'workflow_dispatch'}:
+              if event not in {'push', 'workflow_dispatch'}:
                   raise ValueError('Unsupported executor event')
               attempt = int(attempt)
               if attempt < 1:
                   raise ValueError('Invalid run attempt')
-              # Only automatic first attempts stop after the campaign.
-              # Explicit starts/reruns remain available for reconciliation.
-              cutoff = datetime(2026, 10, 23, 0, 30, tzinfo=timezone.utc)
-              if event == 'schedule' and attempt == 1 and now >= cutoff:
-                  return {'AURORA_SHOULD_RUN': 'false'}
-              duration = int(requested or '7200') if event == 'workflow_dispatch' else 7200
+              duration = int(requested or '3600') if event == 'workflow_dispatch' else 3600
               if not 60 <= duration <= 10200:
                   raise ValueError('Invalid worker lifetime')
               return {
