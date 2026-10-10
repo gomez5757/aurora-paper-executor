@@ -8,7 +8,7 @@ This repository provides standard GitHub-hosted runner capacity for both autonom
 
 Since 2026-10-10 the daily Claude Code routine starts the worker by pushing
 `triggers/start.json` to `main` (workflow `Aurora Scheduled Queue Daemon`,
-owner pushes only, 60 minute lifetime). There is no cron. The trigger file holds
+owner pushes only, 120 minute lifetime). There is no cron. The trigger file holds
 only a timestamp and a nonce: no broker commands, positions, account data or
 receipts are ever written to this public repository.
 

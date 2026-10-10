@@ -10,7 +10,7 @@ on:
       duration_seconds:
         description: 'Worker lifetime in seconds (60-10200), at any time'
         required: false
-        default: '3600'
+        default: '7200'
 
 permissions:
   contents: read
@@ -47,7 +47,7 @@ jobs:
               attempt = int(attempt)
               if attempt < 1:
                   raise ValueError('Invalid run attempt')
-              duration = int(requested or '3600') if event == 'workflow_dispatch' else 3600
+              duration = int(requested or '7200') if event == 'workflow_dispatch' else 7200
               if not 60 <= duration <= 10200:
                   raise ValueError('Invalid worker lifetime')
               return {
